@@ -91,14 +91,25 @@ def play(args):
     camera_vel = np.array([1., 1., 0.])
     camera_direction = np.array(env_cfg.viewer.lookat) - np.array(env_cfg.viewer.pos)
     img_idx = 0
+    frame_dir = os.environ.get(
+        "PLAY_FRAMES_DIR",
+        os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name, 'exported', 'frames')
+    )
+    frame_stride = max(1, int(os.environ.get("PLAY_FRAME_STRIDE", "2")))
+    record_seconds = float(os.environ.get("PLAY_RECORD_SECONDS", "0"))
+    max_steps = 10 * int(env.max_episode_length)
+    if record_seconds > 0:
+        max_steps = min(max_steps, int(record_seconds / env.dt))
+    if RECORD_FRAMES:
+        os.makedirs(frame_dir, exist_ok=True)
 
-    for i in range(10 * int(env.max_episode_length)):
+    for i in range(max_steps):
         actions = policy(obs.detach())
         obs, _, rews, dones, infos = env.step(actions.detach())
 
         if RECORD_FRAMES:
-            if i % 2:
-                filename = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name, 'exported', 'frames', f"{img_idx}.png")
+            if i % frame_stride == 0:
+                filename = os.path.join(frame_dir, f"{img_idx:06d}.png")
                 env.gym.write_viewer_image_to_file(env.viewer, filename)
                 img_idx += 1
 
@@ -138,7 +149,7 @@ def play(args):
 
 if __name__ == '__main__':
     EXPORT_POLICY = True
-    RECORD_FRAMES = False
+    RECORD_FRAMES = os.environ.get("PLAY_RECORD_FRAMES", "0") == "1"
     MOVE_CAMERA = False
     args = get_args()
     play(args)

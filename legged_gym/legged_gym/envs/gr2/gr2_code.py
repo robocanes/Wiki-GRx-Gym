@@ -170,5 +170,49 @@ class GR2(LeggedRobotFFTAIBipedal):
         self.env_ids_of_stand_command = env_ids_of_stand_command
         self.env_ids_of_walk_command = env_ids_of_walk_command
 
+    def _shoulder_sideways_indices(self):
+        return self.shoulder_roll_indices + self.shoulder_yaw_indices
+
+    def _shoulder_pitch_indices(self):
+        return self.shoulder_pitch_indices
+
+    def _reward_shoulder_pitch_pos(self):
+        shoulder_pitch_indices = self._shoulder_pitch_indices()
+        if len(shoulder_pitch_indices) == 0:
+            return torch.zeros(self.num_envs, device=self.device)
+
+        shoulder_pitch_offset = torch.abs(
+            self.dof_pos[:, shoulder_pitch_indices]
+            - self.default_dof_pos[:, shoulder_pitch_indices]
+        )
+        return torch.sum(shoulder_pitch_offset, dim=1)
+
+    def _reward_shoulder_pitch_vel(self):
+        shoulder_pitch_indices = self._shoulder_pitch_indices()
+        if len(shoulder_pitch_indices) == 0:
+            return torch.zeros(self.num_envs, device=self.device)
+
+        shoulder_pitch_vel = torch.abs(self.dof_vel[:, shoulder_pitch_indices])
+        return torch.sum(shoulder_pitch_vel, dim=1)
+
+    def _reward_shoulder_sideways_pos(self):
+        shoulder_sideways_indices = self._shoulder_sideways_indices()
+        if len(shoulder_sideways_indices) == 0:
+            return torch.zeros(self.num_envs, device=self.device)
+
+        shoulder_sideways_offset = torch.abs(
+            self.dof_pos[:, shoulder_sideways_indices]
+            - self.default_dof_pos[:, shoulder_sideways_indices]
+        )
+        return torch.sum(shoulder_sideways_offset, dim=1)
+
+    def _reward_shoulder_sideways_vel(self):
+        shoulder_sideways_indices = self._shoulder_sideways_indices()
+        if len(shoulder_sideways_indices) == 0:
+            return torch.zeros(self.num_envs, device=self.device)
+
+        shoulder_sideways_vel = torch.abs(self.dof_vel[:, shoulder_sideways_indices])
+        return torch.sum(shoulder_sideways_vel, dim=1)
+
     # ==========================================================================================================================
     # Reward functions
