@@ -144,4 +144,6 @@ cython_debug/
 legged_gym/logs/
 *.pt
 *.mp4
+id_ed25519_github
+id_ed25519_github.pub
 events.out.tfevents.*
