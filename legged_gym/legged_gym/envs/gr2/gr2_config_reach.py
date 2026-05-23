@@ -22,7 +22,7 @@ class GR2ReachCfg(GR2BaseCfg):
         # Target is sampled in the robot base frame. +x is forward, +y is left.
         target_x_range = [0.18, 0.38]
         target_y_abs_range = [0.10, 0.25]
-        target_z_range = [-0.12, 0.18]
+        target_z_range = [-0.10, 0.26]
         target_roll_range = [-0.20, 0.20]
         target_pitch_range = [-0.20, 0.20]
         target_yaw_range = [-0.35, 0.35]
@@ -241,13 +241,13 @@ class GR2ReachCfgPPO(GR2BaseCfgPPO, GR2ReachCfg):
         experiment_name = "GR2Reach"
         num_steps_per_env = 48
 
-        run_name = "front_random_wrist_target_balance_curriculum_easy"
-        max_iterations = 5000
+        run_name = "front_random_wrist_target_higherz_from_stable"
+        max_iterations = 2500
         save_interval = 100
 
-        resume = False
-        load_run = -1
-        checkpoint = -1
+        resume = True
+        load_run = "May22_22-47-31_front_random_wrist_target_balance_curriculum_easy"
+        checkpoint = 4999
 
     class algorithm(GR2BaseCfgPPO.algorithm):
         class_name = "PPO"
