@@ -35,6 +35,18 @@ def _quat_mul(q, r):
     return quat
 
 
+def _quat_apply_np(q, v):
+    q_xyz = q[:3]
+    q_w = q[3]
+    uv = np.cross(q_xyz, v)
+    uuv = np.cross(q_xyz, uv)
+    return v + 2.0 * (q_w * uv + uuv)
+
+
+def _transform_point_np(pos, quat, point):
+    return pos + _quat_apply_np(quat, point)
+
+
 class GR2Reach(GR2):
     def _init_buffers_others(self):
         super()._init_buffers_others()
@@ -45,6 +57,13 @@ class GR2Reach(GR2):
         self.reach_target_quat = torch.zeros(self.num_envs, 4, dtype=torch.float, device=self.device)
         self.reach_use_left = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
         self.reach_arm_selector = torch.zeros(self.num_envs, 2, dtype=torch.float, device=self.device)
+        self.camera_indices = torch.tensor(
+            [i for i, name in enumerate(self.body_names) if "camera_link" in name],
+            dtype=torch.long,
+            device=self.device,
+        )
+        if len(self.camera_indices) == 0:
+            self.camera_indices = self.head_indices
 
         action_dof_names = [self.dof_names[i] for i in self.action_indices.tolist()]
         arm_action_names = ("shoulder", "elbow", "wrist")
@@ -213,6 +232,11 @@ class GR2Reach(GR2):
         right_quat = self.rigid_body_states[:, self.end_effector_indices[1], 3:7]
         return torch.where(self.reach_use_left.unsqueeze(1), left_quat, right_quat)
 
+    def _active_end_effector_vel(self):
+        left_vel = self.rigid_body_states[:, self.end_effector_indices[0], 7:10]
+        right_vel = self.rigid_body_states[:, self.end_effector_indices[1], 7:10]
+        return torch.where(self.reach_use_left.unsqueeze(1), left_vel, right_vel)
+
     def _upright_reach_gate(self):
         return (torch.abs(self.base_projected_gravity[:, 2]) > self.cfg.rewards.reach_upright_gate).float()
 
@@ -220,34 +244,84 @@ class GR2Reach(GR2):
         self.gym.clear_lines(self.viewer)
         self.gym.refresh_rigid_body_state_tensor(self.sim)
 
-        target_geom_left = gymutil.WireframeSphereGeometry(
-            radius=0.045,
-            num_lats=8,
-            num_lons=8,
-            pose=None,
-            color=(0.1, 0.8, 1.0),
-        )
-        target_geom_right = gymutil.WireframeSphereGeometry(
-            radius=0.045,
-            num_lats=8,
-            num_lons=8,
-            pose=None,
-            color=(1.0, 0.45, 0.1),
-        )
-
         active_end_effector_pos = self._active_end_effector_pos()
+        axis_length = 0.11
+        tick_length = 0.025
+        axis_basis = np.eye(3, dtype=np.float32)
+        axis_colors = np.array(
+            [
+                [1.0, 0.1, 0.1],
+                [0.1, 0.85, 0.1],
+                [0.15, 0.35, 1.0],
+            ],
+            dtype=np.float32,
+        )
+        draw_target_volume_box = getattr(self.cfg.reach, "draw_target_volume_box", True)
+        if draw_target_volume_box:
+            box_color = np.array([[0.9, 0.9, 0.9]], dtype=np.float32)
+            x_min, x_max = self.cfg.reach.target_x_range
+            y_max = self.cfg.reach.target_y_abs_range[1]
+            z_min, z_max = self.cfg.reach.target_z_range
+            box_corners_base = np.array(
+                [
+                    [x_min, -y_max, z_min],
+                    [x_max, -y_max, z_min],
+                    [x_max, y_max, z_min],
+                    [x_min, y_max, z_min],
+                    [x_min, -y_max, z_max],
+                    [x_max, -y_max, z_max],
+                    [x_max, y_max, z_max],
+                    [x_min, y_max, z_max],
+                ],
+                dtype=np.float32,
+            )
+            box_edges = (
+                (0, 1), (1, 2), (2, 3), (3, 0),
+                (4, 5), (5, 6), (6, 7), (7, 4),
+                (0, 4), (1, 5), (2, 6), (3, 7),
+            )
 
         for env_id in range(self.num_envs):
             use_left = self.reach_use_left[env_id].item()
+            base_pos = self.base_pos[env_id].detach().cpu().numpy()
+            base_quat = self.base_quat[env_id].detach().cpu().numpy()
             target_pos = self.reach_target_pos[env_id].detach().cpu().numpy()
+            target_quat = self.reach_target_quat[env_id].detach().cpu().numpy()
             wrist_pos = active_end_effector_pos[env_id].detach().cpu().numpy()
 
-            sphere_pose = gymapi.Transform(
-                gymapi.Vec3(target_pos[0], target_pos[1], target_pos[2]),
-                r=None,
-            )
-            target_geom = target_geom_left if use_left else target_geom_right
-            gymutil.draw_lines(target_geom, self.gym, self.viewer, self.env_handles[env_id], sphere_pose)
+            if draw_target_volume_box:
+                box_corners = np.array(
+                    [_transform_point_np(base_pos, base_quat, corner) for corner in box_corners_base],
+                    dtype=np.float32,
+                )
+                box_vertices = np.array(
+                    [box_corners[index] for edge in box_edges for index in edge],
+                    dtype=np.float32,
+                )
+                self.gym.add_lines(
+                    self.viewer,
+                    self.env_handles[env_id],
+                    len(box_edges),
+                    box_vertices,
+                    np.repeat(box_color, len(box_edges), axis=0),
+                )
+
+            marker_vertices = []
+            marker_colors = []
+            for axis_id, local_axis in enumerate(axis_basis):
+                axis = _quat_apply_np(target_quat, local_axis)
+                end_pos = target_pos + axis * axis_length
+                marker_vertices.extend([target_pos, end_pos])
+                marker_colors.append(axis_colors[axis_id])
+
+                tick_axis = _quat_apply_np(target_quat, axis_basis[(axis_id + 1) % 3])
+                marker_vertices.extend([end_pos, end_pos - axis * tick_length + tick_axis * tick_length])
+                marker_vertices.extend([end_pos, end_pos - axis * tick_length - tick_axis * tick_length])
+                marker_colors.extend([axis_colors[axis_id], axis_colors[axis_id]])
+
+            marker_vertices = np.array(marker_vertices, dtype=np.float32)
+            marker_colors = np.array(marker_colors, dtype=np.float32)
+            self.gym.add_lines(self.viewer, self.env_handles[env_id], len(marker_colors), marker_vertices, marker_colors)
 
             line_vertices = np.array([wrist_pos, target_pos], dtype=np.float32)
             line_color = np.array([[0.1, 0.8, 1.0]], dtype=np.float32) \
@@ -276,12 +350,34 @@ class GR2Reach(GR2):
             * torch.exp(-ang_vel_error / self.cfg.rewards.reach_stable_ang_vel_sigma)
         return target_close * base_stable * self._upright_reach_gate()
 
+    def _reward_active_end_effector_still(self):
+        target_error = torch.norm(self._active_end_effector_pos() - self.reach_target_pos, dim=1)
+        target_close = torch.exp(-target_error / self.cfg.rewards.reach_pos_tracking_sigma)
+        end_effector_speed = torch.norm(self._active_end_effector_vel(), dim=1)
+        speed_penalty = 1.0 - torch.exp(-end_effector_speed / self.cfg.rewards.reach_ee_vel_sigma)
+        return speed_penalty * target_close * self._upright_reach_gate()
+
     def _reward_reach_target_orient(self):
         active_quat = self._active_end_effector_quat()
         quat_dot = torch.abs(torch.sum(active_quat * self.reach_target_quat, dim=1))
         quat_dot = torch.clamp(quat_dot, max=1.0)
         orient_error = 2.0 * torch.acos(quat_dot)
         return torch.exp(-orient_error / self.cfg.rewards.reach_orient_tracking_sigma)
+
+    def _reward_head_look_at_target(self):
+        if len(self.camera_indices) == 0:
+            return torch.zeros(self.num_envs, device=self.device)
+
+        camera_pos = self.rigid_body_states[:, self.camera_indices[0], 0:3]
+        camera_quat = self.rigid_body_states[:, self.camera_indices[0], 3:7]
+        camera_forward = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device)
+        camera_forward[:, 0] = 1.0
+        camera_forward = quat_apply(camera_quat, camera_forward)
+
+        target_direction = self.reach_target_pos - camera_pos
+        target_direction = target_direction / torch.clamp(torch.norm(target_direction, dim=1, keepdim=True), min=1e-6)
+        look_alignment = torch.sum(camera_forward * target_direction, dim=1)
+        return torch.clamp(look_alignment, min=0.0) * self._upright_reach_gate()
 
     def _reward_inactive_arm_still(self):
         return self._inactive_arm_action_error()

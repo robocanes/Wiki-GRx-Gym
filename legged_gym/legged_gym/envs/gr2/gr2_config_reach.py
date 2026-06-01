@@ -11,9 +11,9 @@ class GR2ReachCfg(GR2BaseCfg):
         episode_length_s = 6
 
         num_envs = 8192
-        num_obs = 99
-        num_pri_obs = 112
-        num_actions = 27
+        num_obs = 101
+        num_pri_obs = 114
+        num_actions = 29
 
         use_stack = True
         num_stack = 5
@@ -22,10 +22,11 @@ class GR2ReachCfg(GR2BaseCfg):
         # Target is sampled in the robot base frame. +x is forward, +y is left.
         target_x_range = [0.18, 0.38]
         target_y_abs_range = [0.10, 0.25]
-        target_z_range = [-0.10, 0.26]
+        target_z_range = [-0.15, 0.375]
         target_roll_range = [-0.20, 0.20]
         target_pitch_range = [-0.20, 0.20]
         target_yaw_range = [-0.35, 0.35]
+        draw_target_volume_box = True
 
     class asset(GR2BaseCfg.asset):
         file = "{LEGGED_GYM_ROOT_DIR}/resources/robots/GR2/urdf/GR2_raw.urdf"
@@ -70,6 +71,10 @@ class GR2ReachCfg(GR2BaseCfg):
             # waist
             "waist_yaw",
 
+            # head
+            "head_yaw",
+            "head_pitch",
+
             # arms
             "shoulder_pitch",
             "shoulder_roll",
@@ -89,6 +94,9 @@ class GR2ReachCfg(GR2BaseCfg):
             "ankle_roll": 0.08,
 
             "waist_yaw": 0.25,
+
+            "head_yaw": 0.35,
+            "head_pitch": 0.22,
 
             "shoulder_pitch": 0.35,
             "shoulder_roll": 0.22,
@@ -172,6 +180,7 @@ class GR2ReachCfg(GR2BaseCfg):
         reach_upright_gate = 0.90
         reach_stable_lin_vel_sigma = 0.18
         reach_stable_ang_vel_sigma = 0.45
+        reach_ee_vel_sigma = 0.35
 
         only_positive_rewards = False
 
@@ -180,6 +189,8 @@ class GR2ReachCfg(GR2BaseCfg):
             reach_target_orient = 0.10
             reach_target_success = 1.00
             reach_target_stable = 2.50
+            active_end_effector_still = -0.65
+            head_look_at_target = 0.55
 
             base_still = -3.00
             main_body_dof_pos = -1.20
@@ -211,6 +222,7 @@ class GR2ReachCfg(GR2BaseCfg):
             -2.6180, -0.5934, -0.6981, -0.0873, -0.7854, -0.38397,
             -2.6180, -1.5708, -1.5708, -0.0873, -0.7854, -0.38397,
             -2.6180,
+            -1.3963, -0.5236,
             -2.9671, -0.5236, -1.8326, -1.5272, -1.8326, -0.6109, -0.9600,
             -2.9671, -2.7925, -1.8326, -1.5272, -1.8326, -0.6109, -0.9600,
         ])
@@ -218,6 +230,7 @@ class GR2ReachCfg(GR2BaseCfg):
             2.6180, 1.5708, 1.5708, 2.3562, 0.7854, 0.38397,
             2.6180, 0.5934, 0.6981, 2.3562, 0.7854, 0.38397,
             2.6180,
+            1.3963, 0.5236,
             2.9671, 2.7925, 1.8326, 0.4800, 1.8326, 0.6109, 0.9600,
             2.9671, 0.5236, 1.8326, 0.4800, 1.8326, 0.6109, 0.9600,
         ])
@@ -228,9 +241,9 @@ class GR2ReachCfg(GR2BaseCfg):
 
     class mirror(GR2BaseCfg.mirror):
         enable_mirror = False
-        observations_coefficient = numpy.ones(99)
+        observations_coefficient = numpy.ones(101)
         observations_exchange = numpy.array([])
-        actions_coefficient = numpy.ones(27)
+        actions_coefficient = numpy.ones(29)
         actions_exchange = numpy.array([])
 
 
@@ -241,13 +254,13 @@ class GR2ReachCfgPPO(GR2BaseCfgPPO, GR2ReachCfg):
         experiment_name = "GR2Reach"
         num_steps_per_env = 48
 
-        run_name = "front_random_wrist_target_higherz_from_stable"
-        max_iterations = 2500
+        run_name = "front_random_wrist_target_headlook_nojitter_highlowz"
+        max_iterations = 5000
         save_interval = 100
 
-        resume = True
-        load_run = "May22_22-47-31_front_random_wrist_target_balance_curriculum_easy"
-        checkpoint = 4999
+        resume = False
+        load_run = -1
+        checkpoint = -1
 
     class algorithm(GR2BaseCfgPPO.algorithm):
         class_name = "PPO"
@@ -267,6 +280,7 @@ class GR2ReachCfgPPO(GR2BaseCfgPPO, GR2ReachCfg):
             0.08, 0.08, 0.08, 0.08, 0.08, 0.08,
             0.08, 0.08, 0.08, 0.08, 0.08, 0.08,
             0.20,
+            0.18, 0.16,
             0.35, 0.30, 0.30, 0.30, 0.25, 0.25, 0.25,
             0.35, 0.30, 0.30, 0.30, 0.25, 0.25, 0.25,
         ]

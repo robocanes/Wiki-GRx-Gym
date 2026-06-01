@@ -56,6 +56,10 @@ def play(args):
 
     # prepare environment
     env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
+    fixed_commands = _get_fixed_commands(env)
+    if fixed_commands is not None:
+        _apply_fixed_commands(env, fixed_commands)
+        env.compute_observations()
     obs = env.get_observations()
 
     # load policy
@@ -85,12 +89,13 @@ def play(args):
     logger = Logger(env.dt)
     robot_index = 0  # which robot is used for logging
     joint_index = 1  # which joint is used for logging
-    stop_state_log = 100  # number of steps before plotting states
+    stop_state_log = 100 if PLOT_STATES else -1  # number of steps before plotting states
     stop_rew_log = env.max_episode_length + 1  # number of steps before print average episode rewards
-    camera_position = np.array(env_cfg.viewer.pos, dtype=np.float64)
+    camera_position = _get_vector_env("PLAY_CAMERA_POS", env_cfg.viewer.pos)
     camera_vel = np.array([1., 1., 0.])
-    camera_direction = np.array(env_cfg.viewer.lookat) - np.array(env_cfg.viewer.pos)
-    env.set_camera(camera_position, camera_position + camera_direction)
+    camera_lookat = _get_vector_env("PLAY_CAMERA_LOOKAT", env_cfg.viewer.lookat)
+    camera_direction = camera_lookat - camera_position
+    env.set_camera(camera_position, camera_lookat)
     img_idx = 0
     frame_dir = os.environ.get(
         "PLAY_FRAMES_DIR",
@@ -105,8 +110,18 @@ def play(args):
         os.makedirs(frame_dir, exist_ok=True)
 
     for i in range(max_steps):
+        if fixed_commands is not None:
+            _apply_fixed_commands(env, fixed_commands)
+            env.compute_observations()
+            obs = env.get_observations()
+
         actions = policy(obs.detach())
         obs, _, rews, dones, infos = env.step(actions.detach())
+
+        if fixed_commands is not None:
+            _apply_fixed_commands(env, fixed_commands)
+            env.compute_observations()
+            obs = env.get_observations()
 
         if RECORD_FRAMES:
             if i % frame_stride == 0:
@@ -139,7 +154,7 @@ def play(args):
                 }
             )
 
-        elif i == stop_state_log:
+        elif PLOT_STATES and i == stop_state_log:
             logger.plot_states()
 
         if 0 < i < stop_rew_log:
@@ -151,9 +166,54 @@ def play(args):
             logger.print_rewards()
 
 
+def _get_fixed_commands(env):
+    command_values = [
+        os.environ.get("PLAY_COMMAND_X"),
+        os.environ.get("PLAY_COMMAND_Y"),
+        os.environ.get("PLAY_COMMAND_YAW"),
+    ]
+    if all(value is None for value in command_values):
+        return None
+
+    commands = torch.zeros(env.num_envs, env.cfg.commands.num_commands, device=env.device)
+    for command_idx, value in enumerate(command_values):
+        if value is not None and command_idx < commands.shape[1]:
+            commands[:, command_idx] = float(value)
+
+    print(
+        "PLAY_COMMAND override: "
+        f"x={commands[0, 0].item() if commands.shape[1] > 0 else 0.0:.3f}, "
+        f"y={commands[0, 1].item() if commands.shape[1] > 1 else 0.0:.3f}, "
+        f"yaw={commands[0, 2].item() if commands.shape[1] > 2 else 0.0:.3f}"
+    )
+    return commands
+
+
+def _apply_fixed_commands(env, commands):
+    env_ids = torch.arange(env.num_envs, device=env.device)
+    if hasattr(env, "set_commands"):
+        env.set_commands(env_ids, commands)
+    else:
+        env.commands[:] = commands
+
+
+def _get_vector_env(name, default):
+    value = os.environ.get(name)
+    if value is None:
+        return np.array(default, dtype=np.float64)
+
+    parts = [float(part.strip()) for part in value.split(",")]
+    if len(parts) != 3:
+        raise ValueError(f"{name} must have three comma-separated values, got: {value}")
+    vector = np.array(parts, dtype=np.float64)
+    print(f"{name} override: {vector.tolist()}")
+    return vector
+
+
 if __name__ == '__main__':
     EXPORT_POLICY = True
     RECORD_FRAMES = os.environ.get("PLAY_RECORD_FRAMES", "0") == "1"
+    PLOT_STATES = os.environ.get("PLAY_PLOT_STATES", "1") == "1"
     MOVE_CAMERA = False
     args = get_args()
     play(args)
