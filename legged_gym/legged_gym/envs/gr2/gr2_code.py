@@ -195,6 +195,27 @@ class GR2(LeggedRobotFFTAIBipedal):
         shoulder_pitch_vel = torch.abs(self.dof_vel[:, shoulder_pitch_indices])
         return torch.sum(shoulder_pitch_vel, dim=1)
 
+    def _reward_shoulder_pitch_swing(self):
+        shoulder_pitch_indices = self._shoulder_pitch_indices()
+        if len(shoulder_pitch_indices) < 2:
+            return torch.zeros(self.num_envs, device=self.device)
+
+        shoulder_pitch_offset = (
+            self.dof_pos[:, shoulder_pitch_indices]
+            - self.default_dof_pos[:, shoulder_pitch_indices]
+        )
+        left_pitch = shoulder_pitch_offset[:, 0]
+        right_pitch = shoulder_pitch_offset[:, 1]
+        anti_phase_swing = torch.clamp(torch.abs(left_pitch - right_pitch), max=0.70)
+
+        walk_mask = torch.zeros(self.num_envs, device=self.device)
+        if hasattr(self, "env_ids_of_walk_command"):
+            walk_mask[self.env_ids_of_walk_command] = 1.0
+        else:
+            walk_mask[:] = 1.0
+
+        return anti_phase_swing * walk_mask
+
     def _reward_shoulder_sideways_pos(self):
         shoulder_sideways_indices = self._shoulder_sideways_indices()
         if len(shoulder_sideways_indices) == 0:

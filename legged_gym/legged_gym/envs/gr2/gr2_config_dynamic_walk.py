@@ -37,10 +37,10 @@ class GR2DynamicWalkCfg(GR2UpperBodyCfg):
 
             "waist_yaw": 0.55,
 
-            "shoulder_pitch": 0.22,
+            "shoulder_pitch": 0.34,
             "shoulder_roll": 0.04,
             "shoulder_yaw": 0.05,
-            "elbow_pitch": 0.12,
+            "elbow_pitch": 0.14,
         }
 
     class rewards(GR2UpperBodyCfg.rewards):
@@ -66,8 +66,9 @@ class GR2DynamicWalkCfg(GR2UpperBodyCfg):
             action_diff_diff = -1.20
 
             dof_pos_offset = 0.28
-            shoulder_pitch_pos = -0.20
-            shoulder_pitch_vel = -0.025
+            shoulder_pitch_pos = -0.08
+            shoulder_pitch_vel = -0.012
+            shoulder_pitch_swing = 0.32
             shoulder_sideways_pos = -1.65
             shoulder_sideways_vel = -0.10
             dof_acc = -0.24
@@ -91,13 +92,13 @@ class GR2DynamicWalkCfgPPO(GR2UpperBodyCfgPPO, GR2DynamicWalkCfg):
         experiment_name = "GR2UpperBody"
         num_steps_per_env = 64
 
-        run_name = "dynamic_walk_more_forward_arm_swing"
+        run_name = "dynamic_walk_expressive_shoulder_pitch_swing"
         max_iterations = 2000
         save_interval = 100
 
         resume = True
-        load_run = "May30_14-44-22_dynamic_walk_from_quiet_elbows"
-        checkpoint = 13999
+        load_run = "May31_12-45-15_dynamic_walk_more_forward_arm_swing"
+        checkpoint = 15998
 
     class algorithm(GR2UpperBodyCfgPPO.algorithm):
         class_name = "PPO"
