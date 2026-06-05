@@ -422,3 +422,58 @@ class GR2Reach(GR2):
 
         error_limits_dof_tor = torch.sum(torch.abs(out_of_limits), dim=1)
         return 1 - torch.exp(self.cfg.rewards.sigma_limits_dof_tor * error_limits_dof_tor)
+
+
+class GR2DynamicWalkReachPretrain(GR2Reach):
+    """Reach-shaped full-body policy pretraining with dynamic-walk commands."""
+
+    def compute_observation_variables(self):
+        GR2.compute_observation_variables(self)
+
+    def compute_observation_profile(self):
+        command_context = torch.cat(
+            (
+                self.commands[:, 0:3] * self.commands_scale,
+                torch.zeros(self.num_envs, 5, dtype=torch.float, device=self.device),
+            ), dim=-1)
+
+        obs_buf = torch.cat(
+            (
+                command_context,
+
+                self.base_ang_vel * self.obs_scales.ang_vel,
+                self.base_projected_gravity * self.obs_scales.gravity,
+
+                self.dof_pos_offset * self.obs_scales.dof_pos,
+                self.dof_vel * self.obs_scales.dof_vel,
+
+                self.actions * self.obs_scales.action,
+            ), dim=-1)
+
+        pri_obs_buf = torch.cat(
+            (
+                obs_buf,
+
+                self.base_lin_vel * self.obs_scales.lin_vel,
+                self.base_heights_offset * self.obs_scales.height_measurements,
+
+                self.feet_contact,
+                self.feet_height * self.obs_scales.height_measurements,
+                self.avg_feet_speed_xyz[:, 0, 0:1] * self.obs_scales.lin_vel,
+                self.avg_feet_speed_xyz[:, 1, 0:1] * self.obs_scales.lin_vel,
+                self.avg_feet_speed_xyz[:, 0, 1:2] * self.obs_scales.lin_vel,
+                self.avg_feet_speed_xyz[:, 1, 1:2] * self.obs_scales.lin_vel,
+
+                self.surround_heights_offset * self.obs_scales.height_measurements,
+            ), dim=-1)
+
+        self.obs_buf = obs_buf
+        self.pri_obs_buf = pri_obs_buf
+
+    def _resample_commands(self, env_ids=None, command_profile=None):
+        GR2._resample_commands(self, env_ids, command_profile)
+
+        if env_ids is None:
+            env_ids = torch.arange(self.num_envs, device=self.device)
+        if len(env_ids) > 0:
+            self._sample_reach_targets(env_ids)

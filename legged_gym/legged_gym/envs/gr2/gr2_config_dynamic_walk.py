@@ -29,9 +29,9 @@ class GR2DynamicWalkCfg(GR2UpperBodyCfg):
         ]
 
         class ranges(GR2UpperBodyCfg.commands.ranges):
-            lin_vel_x = [0.05, 0.55]
+            lin_vel_x = [-0.18, 0.60]
             lin_vel_y = [-0.12, 0.12]
-            ang_vel_yaw = [-0.35, 0.35]
+            ang_vel_yaw = [-0.55, 0.55]
 
     class control(GR2UpperBodyCfg.control):
         action_scale = {
@@ -43,6 +43,7 @@ class GR2DynamicWalkCfg(GR2UpperBodyCfg):
     class rewards(GR2UpperBodyCfg.rewards):
         gait_cycle_period = 0.70
         feet_air_time_target = 0.30
+        feet_swing_clearance_target = 0.055
         base_height_target = 0.99
         base_height_offset_range_limit = 0.015
 
@@ -79,6 +80,9 @@ class GR2DynamicWalkCfg(GR2UpperBodyCfg):
             feet_stumble = -0.25
             feet_distance_too_close = -0.55
             feet_air_time = 2.40
+            feet_swing_clearance = -0.35
+            feet_step_length_symmetry = -0.25
+            feet_air_time_symmetry = -0.12
 
 
     class mirror(GR2UpperBodyCfg.mirror):
@@ -136,22 +140,22 @@ class GR2DynamicWalkCfgPPO(GR2UpperBodyCfgPPO, GR2DynamicWalkCfg):
         experiment_name = "GR2UpperBody"
         num_steps_per_env = 64
 
-        run_name = "dynamic_walk_smooth_symmetry_from_13999"
-        max_iterations = 600
+        run_name = "dynamic_walk_gait_balance_from_14550"
+        max_iterations = 400
         save_interval = 50
 
         resume = True
-        load_run = "May30_14-44-22_dynamic_walk_from_quiet_elbows"
-        checkpoint = 13999
+        load_run = "Jun05_13-48-11_dynamic_walk_smooth_symmetry_from_13999"
+        checkpoint = 14550
 
     class algorithm(GR2UpperBodyCfgPPO.algorithm):
         class_name = "PPOMirror"
 
         num_learning_epochs = 8
         num_mini_batches = 25
-        learning_rate = 2.e-5
+        learning_rate = 1.5e-5
         learning_rate_min = 1.e-5
-        learning_rate_max = 1.e-4
+        learning_rate_max = 8.e-5
         schedule = "adaptive"
         desired_kl = 0.015
         mirror_coef = 0.15

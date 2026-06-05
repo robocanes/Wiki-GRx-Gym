@@ -235,5 +235,44 @@ class GR2(LeggedRobotFFTAIBipedal):
         shoulder_sideways_vel = torch.abs(self.dof_vel[:, shoulder_sideways_indices])
         return torch.sum(shoulder_sideways_vel, dim=1)
 
+    def _walk_mask(self):
+        mask = torch.zeros(self.num_envs, device=self.device)
+        if hasattr(self, "env_ids_of_walk_command"):
+            mask[self.env_ids_of_walk_command] = 1.0
+        else:
+            mask[:] = 1.0
+        return mask
+
+    def _feet_positions_in_base_frame(self):
+        left_foot_pos_in_world_frame = self.rigid_body_states[:, self.feet_indices][:, 0, 0:3]
+        right_foot_pos_in_world_frame = self.rigid_body_states[:, self.feet_indices][:, 1, 0:3]
+
+        left_foot_pos_to_base_in_world_frame = left_foot_pos_in_world_frame - self.root_states[:, 0:3]
+        right_foot_pos_to_base_in_world_frame = right_foot_pos_in_world_frame - self.root_states[:, 0:3]
+
+        left_foot_pos = quat_rotate_inverse(self.root_states[:, 3:7], left_foot_pos_to_base_in_world_frame)
+        right_foot_pos = quat_rotate_inverse(self.root_states[:, 3:7], right_foot_pos_to_base_in_world_frame)
+        return left_foot_pos, right_foot_pos
+
+    def _reward_feet_swing_clearance(self):
+        walk_mask = self._walk_mask()
+        swing_mask = (~self.feet_contact).float()
+        clearance_error = torch.clip(self.cfg.rewards.feet_swing_clearance_target - self.feet_height, min=0.0)
+        return torch.sum(clearance_error * swing_mask, dim=1) * walk_mask
+
+    def _reward_feet_step_length_symmetry(self):
+        walk_mask = self._walk_mask()
+        contact_event = torch.any(self.feet_contact_trig, dim=1).float()
+        left_foot_pos, right_foot_pos = self._feet_positions_in_base_frame()
+        step_length_error = torch.abs(torch.abs(left_foot_pos[:, 0]) - torch.abs(right_foot_pos[:, 0]))
+        return step_length_error * contact_event * walk_mask
+
+    def _reward_feet_air_time_symmetry(self):
+        walk_mask = self._walk_mask()
+        contact_event = torch.any(self.feet_contact_trig, dim=1).float()
+        air_time_error = torch.abs(self.feet_air_time_last[:, 0] - self.feet_air_time_last[:, 1])
+        air_time_error = air_time_error / max(self.cfg.rewards.feet_air_time_target, 1.0e-6)
+        return air_time_error * contact_event * walk_mask
+
     # ==========================================================================================================================
     # Reward functions
