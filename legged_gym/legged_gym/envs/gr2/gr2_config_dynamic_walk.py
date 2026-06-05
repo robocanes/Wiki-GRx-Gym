@@ -1,3 +1,5 @@
+import numpy
+
 from legged_gym.envs.gr2.gr2_config_upper_body import GR2UpperBodyCfg, GR2UpperBodyCfgPPO
 
 
@@ -27,8 +29,8 @@ class GR2DynamicWalkCfg(GR2UpperBodyCfg):
         ]
 
         class ranges(GR2UpperBodyCfg.commands.ranges):
-            lin_vel_x = [0.10, 0.85]
-            lin_vel_y = [-0.18, 0.18]
+            lin_vel_x = [0.05, 0.55]
+            lin_vel_y = [-0.12, 0.12]
             ang_vel_yaw = [-0.35, 0.35]
 
     class control(GR2UpperBodyCfg.control):
@@ -36,11 +38,6 @@ class GR2DynamicWalkCfg(GR2UpperBodyCfg):
             **GR2UpperBodyCfg.control.action_scale,
 
             "waist_yaw": 0.55,
-
-            "shoulder_pitch": 0.34,
-            "shoulder_roll": 0.04,
-            "shoulder_yaw": 0.05,
-            "elbow_pitch": 0.14,
         }
 
     class rewards(GR2UpperBodyCfg.rewards):
@@ -62,13 +59,12 @@ class GR2DynamicWalkCfg(GR2UpperBodyCfg):
             base_flat_orient = 0.35
             torso_flat_orient = 0.45
 
-            action_diff = -5.50
-            action_diff_diff = -1.20
+            action_diff = -6.20
+            action_diff_diff = -1.60
 
             dof_pos_offset = 0.28
-            shoulder_pitch_pos = -0.08
-            shoulder_pitch_vel = -0.012
-            shoulder_pitch_swing = 0.32
+            shoulder_pitch_pos = -0.20
+            shoulder_pitch_vel = -0.025
             shoulder_sideways_pos = -1.65
             shoulder_sideways_vel = -0.10
             dof_acc = -0.24
@@ -85,33 +81,82 @@ class GR2DynamicWalkCfg(GR2UpperBodyCfg):
             feet_air_time = 2.40
 
 
+    class mirror(GR2UpperBodyCfg.mirror):
+        enable_mirror = True
+        observations_coefficient = numpy.array([
+            1.0, -1.0, -1.0,
+            -1.0, 1.0, -1.0,
+            1.0, -1.0, 1.0,
+
+            1.0, -1.0, -1.0, 1.0, 1.0, -1.0,
+            1.0, -1.0, -1.0, 1.0, 1.0, -1.0,
+            -1.0,
+            -1.0, 1.0,
+            1.0, -1.0, -1.0, 1.0, -1.0, 1.0, -1.0,
+            1.0, -1.0, -1.0, 1.0, -1.0, 1.0, -1.0,
+
+            1.0, -1.0, -1.0, 1.0, 1.0, -1.0,
+            1.0, -1.0, -1.0, 1.0, 1.0, -1.0,
+            -1.0,
+            -1.0, 1.0,
+            1.0, -1.0, -1.0, 1.0, -1.0, 1.0, -1.0,
+            1.0, -1.0, -1.0, 1.0, -1.0, 1.0, -1.0,
+
+            1.0, -1.0, -1.0, 1.0, 1.0, -1.0,
+            1.0, -1.0, -1.0, 1.0, 1.0, -1.0,
+            -1.0,
+            1.0, -1.0, -1.0, 1.0,
+            1.0, -1.0, -1.0, 1.0,
+        ])
+        observations_exchange = numpy.array([
+            *[(9 + i, 9 + 6 + i) for i in range(6)],
+            *[(24 + i, 24 + 7 + i) for i in range(7)],
+            *[(38 + i, 38 + 6 + i) for i in range(6)],
+            *[(53 + i, 53 + 7 + i) for i in range(7)],
+            *[(67 + i, 67 + 6 + i) for i in range(6)],
+            *[(80 + i, 80 + 4 + i) for i in range(4)],
+        ])
+        actions_coefficient = numpy.array([
+            1.0, -1.0, -1.0, 1.0, 1.0, -1.0,
+            1.0, -1.0, -1.0, 1.0, 1.0, -1.0,
+            -1.0,
+            1.0, -1.0, -1.0, 1.0,
+            1.0, -1.0, -1.0, 1.0,
+        ])
+        actions_exchange = numpy.array([
+            *[(0 + i, 0 + 6 + i) for i in range(6)],
+            *[(13 + i, 13 + 4 + i) for i in range(4)],
+        ])
+
+
 class GR2DynamicWalkCfgPPO(GR2UpperBodyCfgPPO, GR2DynamicWalkCfg):
-    runner_class_name = "OnPolicyRunner"
+    runner_class_name = "OnPolicyRunnerMirror"
 
     class runner(GR2UpperBodyCfgPPO.runner):
         experiment_name = "GR2UpperBody"
         num_steps_per_env = 64
 
-        run_name = "dynamic_walk_expressive_shoulder_pitch_swing"
-        max_iterations = 2000
-        save_interval = 100
+        run_name = "dynamic_walk_smooth_symmetry_from_13999"
+        max_iterations = 600
+        save_interval = 50
 
         resume = True
-        load_run = "May31_12-45-15_dynamic_walk_more_forward_arm_swing"
-        checkpoint = 15998
+        load_run = "May30_14-44-22_dynamic_walk_from_quiet_elbows"
+        checkpoint = 13999
 
     class algorithm(GR2UpperBodyCfgPPO.algorithm):
-        class_name = "PPO"
+        class_name = "PPOMirror"
 
         num_learning_epochs = 8
         num_mini_batches = 25
-        learning_rate = 5.e-5
+        learning_rate = 2.e-5
         learning_rate_min = 1.e-5
-        learning_rate_max = 5.e-4
+        learning_rate_max = 1.e-4
         schedule = "adaptive"
-        desired_kl = 0.025
+        desired_kl = 0.015
+        mirror_coef = 0.15
 
         storage_class = "RolloutStorage"
 
     class policy(GR2UpperBodyCfgPPO.policy):
-        init_noise_std = [0.28] * GR2DynamicWalkCfg.env.num_actions
+        init_noise_std = [0.20] * GR2DynamicWalkCfg.env.num_actions
