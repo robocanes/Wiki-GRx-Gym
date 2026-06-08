@@ -23,15 +23,20 @@ class GR2DynamicWalkCfg(GR2UpperBodyCfg):
     class commands(GR2UpperBodyCfg.commands):
         curriculum = False
         command_profile = "base_velocity"
-        resample_command_interval_s = 6.0
+        resample_command_interval_s = 4.0
+        yaw_spot_turn_curriculum = True
+        yaw_spot_turn_fraction = 0.55
+        yaw_spot_turn_positive_fraction = 0.50
+        yaw_spot_turn_min_abs = 0.35
+        yaw_spot_turn_max_abs = 0.65
         gait_patterns = [
             "stand", "walk",
         ]
 
         class ranges(GR2UpperBodyCfg.commands.ranges):
-            lin_vel_x = [-0.18, 0.60]
+            lin_vel_x = [-0.18, 0.45]
             lin_vel_y = [-0.12, 0.12]
-            ang_vel_yaw = [-0.55, 0.55]
+            ang_vel_yaw = [-0.65, 0.65]
 
     class control(GR2UpperBodyCfg.control):
         action_scale = {
@@ -46,6 +51,9 @@ class GR2DynamicWalkCfg(GR2UpperBodyCfg):
         feet_swing_clearance_target = 0.055
         base_height_target = 0.99
         base_height_offset_range_limit = 0.015
+        positive_yaw_reward_min_command = 0.15
+        spot_yaw_reward_min_command = 0.15
+        spot_yaw_reward_max_linear_command = 0.10
 
         class scales(GR2UpperBodyCfg.rewards.scales):
             stand_still_dof_pos_waist_joint = 0.40
@@ -53,15 +61,17 @@ class GR2DynamicWalkCfg(GR2UpperBodyCfg):
 
             cmd_diff_base_lin_vel_x = 2.70
             cmd_diff_base_lin_vel_y = 0.35
-            cmd_diff_base_ang_vel_yaw = 0.55
+            cmd_diff_base_ang_vel_yaw = 1.45
+            cmd_diff_base_ang_vel_yaw_positive = 0.00
+            cmd_diff_base_ang_vel_yaw_spot = 0.80
 
             base_lin_vel_z = 0.35
             base_height_offset_range = 0.65
             base_flat_orient = 0.35
             torso_flat_orient = 0.45
 
-            action_diff = -6.20
-            action_diff_diff = -1.60
+            action_diff = -6.80
+            action_diff_diff = -1.85
 
             dof_pos_offset = 0.28
             shoulder_pitch_pos = -0.20
@@ -81,8 +91,11 @@ class GR2DynamicWalkCfg(GR2UpperBodyCfg):
             feet_distance_too_close = -0.55
             feet_air_time = 2.40
             feet_swing_clearance = -0.35
-            feet_step_length_symmetry = -0.25
-            feet_air_time_symmetry = -0.12
+            feet_step_length_symmetry = 0.00
+            feet_air_time_symmetry = 0.00
+            ankle_action_abs = -0.18
+            ankle_action_rate = -0.45
+            ankle_pitch_pos_offset = -0.30
 
 
     class mirror(GR2UpperBodyCfg.mirror):
@@ -140,13 +153,13 @@ class GR2DynamicWalkCfgPPO(GR2UpperBodyCfgPPO, GR2DynamicWalkCfg):
         experiment_name = "GR2UpperBody"
         num_steps_per_env = 64
 
-        run_name = "dynamic_walk_gait_balance_from_14550"
-        max_iterations = 400
+        run_name = "dynamic_walk_balanced_yaw_spot_turn_from_15398"
+        max_iterations = 100
         save_interval = 50
 
         resume = True
-        load_run = "Jun05_13-48-11_dynamic_walk_smooth_symmetry_from_13999"
-        checkpoint = 14550
+        load_run = "Jun08_21-34-42_dynamic_walk_positive_yaw_spot_turn_from_15199"
+        checkpoint = 15398
 
     class algorithm(GR2UpperBodyCfgPPO.algorithm):
         class_name = "PPOMirror"

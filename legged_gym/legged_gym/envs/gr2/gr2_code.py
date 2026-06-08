@@ -114,8 +114,49 @@ class GR2(LeggedRobotFFTAIBipedal):
 
     def _resample_commands(self, env_ids=None, command_profile=None):
         super()._resample_commands(env_ids, command_profile)
+        self.apply_dynamic_walk_yaw_curriculum(env_ids)
 
         self.update_gait_generator_pattern()
+
+    def apply_dynamic_walk_yaw_curriculum(self, env_ids):
+        if not getattr(self.cfg.commands, "yaw_spot_turn_curriculum", False):
+            return
+        if env_ids is None:
+            env_ids = torch.arange(start=0, end=self.num_envs, step=1, device=self.device)
+        if len(env_ids) == 0:
+            return
+
+        spot_fraction = getattr(self.cfg.commands, "yaw_spot_turn_fraction", 0.0)
+        if spot_fraction <= 0.0:
+            return
+
+        spot_mask = torch.rand(len(env_ids), device=self.device) < spot_fraction
+        spot_env_ids = env_ids[spot_mask]
+        if len(spot_env_ids) == 0:
+            return
+
+        min_abs_yaw = getattr(self.cfg.commands, "yaw_spot_turn_min_abs", 0.35)
+        max_abs_yaw = getattr(self.cfg.commands, "yaw_spot_turn_max_abs", self.command_ranges["ang_vel_yaw"][1])
+        positive_fraction = getattr(self.cfg.commands, "yaw_spot_turn_positive_fraction", 0.50)
+
+        yaw_mag = torch_rand_float(
+            min_abs_yaw,
+            max_abs_yaw,
+            (len(spot_env_ids), 1),
+            device=self.device,
+        ).squeeze(1)
+        yaw_sign = torch.where(
+            torch.rand(len(spot_env_ids), device=self.device) < positive_fraction,
+            torch.ones(len(spot_env_ids), device=self.device),
+            -torch.ones(len(spot_env_ids), device=self.device),
+        )
+        self.commands[spot_env_ids, 0] = 0.0
+        self.commands[spot_env_ids, 1] = 0.0
+        self.commands[spot_env_ids, 2] = yaw_mag * yaw_sign
+
+        self.commands_base_lin_vel_x = self.commands[:, 0:1]
+        self.commands_base_lin_vel_y = self.commands[:, 1:2]
+        self.commands_base_ang_vel_yaw = self.commands[:, 2:3]
 
     def set_commands(self, env_ids, commands):
         """
@@ -273,6 +314,58 @@ class GR2(LeggedRobotFFTAIBipedal):
         air_time_error = torch.abs(self.feet_air_time_last[:, 0] - self.feet_air_time_last[:, 1])
         air_time_error = air_time_error / max(self.cfg.rewards.feet_air_time_target, 1.0e-6)
         return air_time_error * contact_event * walk_mask
+
+    def _ankle_action_indices(self):
+        return self.ankle_pitch_indices + self.ankle_roll_indices
+
+    def _ankle_pitch_action_indices(self):
+        return self.ankle_pitch_indices
+
+    def _reward_ankle_action_abs(self):
+        ankle_indices = self._ankle_action_indices()
+        if len(ankle_indices) == 0:
+            return torch.zeros(self.num_envs, device=self.device)
+
+        return torch.sum(torch.abs(self.actions[:, ankle_indices]), dim=1) * self._walk_mask()
+
+    def _reward_ankle_action_rate(self):
+        ankle_indices = self._ankle_action_indices()
+        if len(ankle_indices) == 0:
+            return torch.zeros(self.num_envs, device=self.device)
+
+        ankle_action_delta = self.actions[:, ankle_indices] - self.last_actions[:, ankle_indices]
+        return torch.sum(torch.square(ankle_action_delta), dim=1) * self._walk_mask()
+
+    def _reward_ankle_pitch_pos_offset(self):
+        ankle_pitch_indices = self._ankle_pitch_action_indices()
+        if len(ankle_pitch_indices) == 0:
+            return torch.zeros(self.num_envs, device=self.device)
+
+        ankle_pitch_offset = torch.abs(
+            self.dof_pos[:, ankle_pitch_indices]
+            - self.default_dof_pos[:, ankle_pitch_indices]
+        )
+        return torch.sum(ankle_pitch_offset, dim=1) * self._walk_mask()
+
+    def _reward_cmd_diff_base_ang_vel_yaw_positive(self):
+        min_command = getattr(self.cfg.rewards, "positive_yaw_reward_min_command", 0.15)
+        positive_yaw_mask = (self.commands_base_ang_vel_yaw[:, 0] > min_command).float()
+        error_yaw_vel = torch.abs(self.commands_base_ang_vel_yaw - self.base_ang_vel[:, 2:3])
+        error_yaw_vel = torch.sum(error_yaw_vel, dim=1)
+        reward_yaw_vel = torch.exp(self.cfg.rewards.sigma_cmd_diff_base_ang_vel_yaw * error_yaw_vel)
+        return reward_yaw_vel * positive_yaw_mask
+
+    def _reward_cmd_diff_base_ang_vel_yaw_spot(self):
+        min_command = getattr(self.cfg.rewards, "spot_yaw_reward_min_command", 0.15)
+        max_linear_command = getattr(self.cfg.rewards, "spot_yaw_reward_max_linear_command", 0.10)
+        spot_yaw_mask = (
+            (torch.abs(self.commands_base_ang_vel_yaw[:, 0]) > min_command)
+            & (torch.norm(self.commands[:, 0:2], dim=1) <= max_linear_command)
+        ).float()
+        error_yaw_vel = torch.abs(self.commands_base_ang_vel_yaw - self.base_ang_vel[:, 2:3])
+        error_yaw_vel = torch.sum(error_yaw_vel, dim=1)
+        reward_yaw_vel = torch.exp(self.cfg.rewards.sigma_cmd_diff_base_ang_vel_yaw * error_yaw_vel)
+        return reward_yaw_vel * spot_yaw_mask
 
     # ==========================================================================================================================
     # Reward functions
