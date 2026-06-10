@@ -369,3 +369,78 @@ class GR2(LeggedRobotFFTAIBipedal):
 
     # ==========================================================================================================================
     # Reward functions
+
+
+class GR2DynamicWalk12(GR2):
+    """Vendor-style lower-body walk: 12 leg actions, 49 actor observations."""
+
+    def _gait_phase_obs(self):
+        gait_cycle_period = getattr(self.cfg.rewards, "gait_cycle_period", 0.8)
+        phase = self.episode_length_buf.float() * self.dt / gait_cycle_period * 2.0 * torch.pi
+        return torch.stack((torch.sin(phase), torch.cos(phase)), dim=1)
+
+    def compute_observation_profile(self):
+        gait_phase = self._gait_phase_obs()
+
+        obs_buf = torch.cat(
+            (
+                # command
+                self.commands[:, 0:3] * self.commands_scale,
+
+                # base related
+                self.base_ang_vel * self.obs_scales.ang_vel,
+                self.base_projected_gravity * self.obs_scales.gravity,
+
+                # dof related. The waist is observed but not controlled.
+                self.dof_pos_offset * self.obs_scales.dof_pos,
+                self.dof_vel * self.obs_scales.dof_vel,
+
+                # action related
+                self.actions * self.obs_scales.action,
+
+                # CPG-compatible phase cue
+                gait_phase,
+            ), dim=-1)
+
+        pri_obs_buf = torch.cat(
+            (
+                obs_buf,
+
+                # base related
+                self.base_lin_vel * self.obs_scales.lin_vel,
+                self.base_heights_offset * self.obs_scales.height_measurements,
+
+                # foot related
+                self.feet_contact,
+                self.feet_height * self.obs_scales.height_measurements,
+                self.avg_feet_speed_xyz[:, 0, 0:1] * self.obs_scales.lin_vel,
+                self.avg_feet_speed_xyz[:, 1, 0:1] * self.obs_scales.lin_vel,
+                self.avg_feet_speed_xyz[:, 0, 1:2] * self.obs_scales.lin_vel,
+                self.avg_feet_speed_xyz[:, 1, 1:2] * self.obs_scales.lin_vel,
+
+                # terrain related
+                self.surround_heights_offset * self.obs_scales.height_measurements,
+            ), dim=-1)
+
+        self.obs_buf = obs_buf
+        self.pri_obs_buf = pri_obs_buf
+
+    def compute_obs_noise_scale_vec_profile(self):
+        return super().compute_obs_noise_scale_vec_profile()
+
+    def _reward_double_support_stamping(self):
+        walk_mask = self._walk_mask()
+        double_support = (self.feet_contact[:, 0] & self.feet_contact[:, 1]).float()
+        vertical_force = torch.sum(torch.abs(self.contact_forces[:, self.feet_indices, 2]), dim=1)
+        robot_weight = getattr(self.cfg.rewards, "robot_mass", 66.73034) * 9.81
+        normalized_force = vertical_force / max(robot_weight, 1.0e-6)
+        return double_support * torch.clamp(normalized_force - 1.0, min=0.0) * walk_mask
+
+    def _reward_ankle_pitch_motion(self):
+        ankle_pitch_indices = self._ankle_pitch_action_indices()
+        if len(ankle_pitch_indices) == 0:
+            return torch.zeros(self.num_envs, device=self.device)
+
+        ankle_pitch_vel = torch.abs(self.dof_vel[:, ankle_pitch_indices])
+        useful_motion = torch.clamp(torch.sum(ankle_pitch_vel, dim=1), max=4.0)
+        return useful_motion * self._walk_mask()
