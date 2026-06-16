@@ -184,6 +184,14 @@ class GR2Reach(GR2):
         roll_range = self.cfg.reach.target_roll_range
         pitch_range = self.cfg.reach.target_pitch_range
         yaw_range = self.cfg.reach.target_yaw_range
+        edge_sample_prob = float(getattr(self.cfg.reach, "target_edge_sample_prob", 0.0))
+        edge_z_band_fraction = float(getattr(self.cfg.reach, "target_edge_z_band_fraction", 0.25))
+        edge_y_band_fraction = float(getattr(self.cfg.reach, "target_edge_y_band_fraction", 0.30))
+        edge_x_band_fraction = float(getattr(self.cfg.reach, "target_edge_x_band_fraction", 0.30))
+        edge_low_z_weight = float(getattr(self.cfg.reach, "target_edge_low_z_weight", 0.35))
+        edge_high_z_weight = float(getattr(self.cfg.reach, "target_edge_high_z_weight", 0.35))
+        edge_outer_y_weight = float(getattr(self.cfg.reach, "target_edge_outer_y_weight", 0.20))
+        edge_forward_x_weight = float(getattr(self.cfg.reach, "target_edge_forward_x_weight", 0.10))
 
         target_pos_base = torch.zeros(len(env_ids), 3, dtype=torch.float, device=self.device)
         target_pos_base[:, 0] = torch_rand_float(x_range[0], x_range[1], (len(env_ids), 1), device=self.device).squeeze(1)
@@ -195,6 +203,61 @@ class GR2Reach(GR2):
         )
         target_pos_base[:, 1] = target_y_abs * target_side
         target_pos_base[:, 2] = torch_rand_float(z_range[0], z_range[1], (len(env_ids), 1), device=self.device).squeeze(1)
+
+        if edge_sample_prob > 0.0:
+            num_targets = len(env_ids)
+            edge_mask = torch.rand(num_targets, device=self.device) < edge_sample_prob
+            edge_count = int(edge_mask.sum().item())
+            if edge_count > 0:
+                z_span = z_range[1] - z_range[0]
+                y_span = y_abs_range[1] - y_abs_range[0]
+                x_span = x_range[1] - x_range[0]
+                z_band = max(z_span * edge_z_band_fraction, 1.0e-6)
+                y_band = max(y_span * edge_y_band_fraction, 1.0e-6)
+                x_band = max(x_span * edge_x_band_fraction, 1.0e-6)
+
+                mode_weights = torch.tensor(
+                    [
+                        max(edge_low_z_weight, 0.0),
+                        max(edge_high_z_weight, 0.0),
+                        max(edge_outer_y_weight, 0.0),
+                        max(edge_forward_x_weight, 0.0),
+                    ],
+                    dtype=torch.float,
+                    device=self.device,
+                )
+                mode_weights = mode_weights / torch.clamp(torch.sum(mode_weights), min=1.0e-6)
+                mode_ids = torch.multinomial(mode_weights, edge_count, replacement=True)
+                edge_indices = torch.nonzero(edge_mask, as_tuple=False).squeeze(1)
+
+                low_z_mask = mode_ids == 0
+                if torch.any(low_z_mask):
+                    indices = edge_indices[low_z_mask]
+                    target_pos_base[indices, 2] = torch_rand_float(
+                        z_range[0], z_range[0] + z_band, (len(indices), 1), device=self.device
+                    ).squeeze(1)
+
+                high_z_mask = mode_ids == 1
+                if torch.any(high_z_mask):
+                    indices = edge_indices[high_z_mask]
+                    target_pos_base[indices, 2] = torch_rand_float(
+                        z_range[1] - z_band, z_range[1], (len(indices), 1), device=self.device
+                    ).squeeze(1)
+
+                outer_y_mask = mode_ids == 2
+                if torch.any(outer_y_mask):
+                    indices = edge_indices[outer_y_mask]
+                    target_y_abs = torch_rand_float(
+                        y_abs_range[1] - y_band, y_abs_range[1], (len(indices), 1), device=self.device
+                    ).squeeze(1)
+                    target_pos_base[indices, 1] = target_y_abs * target_side[indices]
+
+                forward_x_mask = mode_ids == 3
+                if torch.any(forward_x_mask):
+                    indices = edge_indices[forward_x_mask]
+                    target_pos_base[indices, 0] = torch_rand_float(
+                        x_range[1] - x_band, x_range[1], (len(indices), 1), device=self.device
+                    ).squeeze(1)
 
         target_rpy_base = torch.zeros_like(target_pos_base)
         target_rpy_base[:, 0] = torch_rand_float(

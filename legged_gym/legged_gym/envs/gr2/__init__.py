@@ -29,6 +29,10 @@ from legged_gym.envs.gr2.gr2_config_reach_planted_curriculum import (
     GR2ReachPlantedCurriculumZ1Cfg,
     GR2ReachPlantedCurriculumZ1CfgPPO,
 )
+from legged_gym.envs.gr2.gr2_config_reach_planted_curriculum_z2 import (
+    GR2ReachPlantedCurriculumZ2Cfg,
+    GR2ReachPlantedCurriculumZ2CfgPPO,
+)
 from legged_gym.envs.gr2.gr2_config_upper_body import GR2UpperBodyCfg, GR2UpperBodyCfgPPO
 
 task_registry.register("GR2", GR2, GR2MainBodyCfg(), GR2MainBodyCfgPPO(), )
@@ -46,3 +50,4 @@ task_registry.register("GR2ReachExpandedStable", GR2Reach, GR2ReachExpandedStabl
 task_registry.register("GR2ReachPickupHigh", GR2Reach, GR2ReachPickupHighCfg(), GR2ReachPickupHighCfgPPO(), )
 task_registry.register("GR2ReachPlantedPickup", GR2ReachPlantedPickup, GR2ReachPlantedPickupCfg(), GR2ReachPlantedPickupCfgPPO(), )
 task_registry.register("GR2ReachPlantedCurriculumZ1", GR2ReachPlantedPickup, GR2ReachPlantedCurriculumZ1Cfg(), GR2ReachPlantedCurriculumZ1CfgPPO(), )
+task_registry.register("GR2ReachPlantedCurriculumZ2", GR2ReachPlantedPickup, GR2ReachPlantedCurriculumZ2Cfg(), GR2ReachPlantedCurriculumZ2CfgPPO(), )
