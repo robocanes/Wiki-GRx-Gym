@@ -30,6 +30,22 @@ class GR2ReachPlantedPickup(GR2Reach):
             dtype=torch.long,
             device=self.device,
         )
+        self.ankle_pitch_action_indices = torch.tensor(
+            [
+                i for i, name in enumerate(action_dof_names)
+                if "ankle_pitch" in name
+            ],
+            dtype=torch.long,
+            device=self.device,
+        )
+        self.yaw_action_indices = torch.tensor(
+            [
+                i for i, name in enumerate(action_dof_names)
+                if "hip_yaw" in name or "waist_yaw" in name
+            ],
+            dtype=torch.long,
+            device=self.device,
+        )
         self.knee_dof_indices = torch.tensor(
             [
                 int(self.action_indices[i].item())
@@ -42,6 +58,22 @@ class GR2ReachPlantedPickup(GR2Reach):
             [
                 int(self.action_indices[i].item())
                 for i in self.hip_pitch_action_indices.tolist()
+            ],
+            dtype=torch.long,
+            device=self.device,
+        )
+        self.ankle_pitch_dof_indices = torch.tensor(
+            [
+                int(self.action_indices[i].item())
+                for i in self.ankle_pitch_action_indices.tolist()
+            ],
+            dtype=torch.long,
+            device=self.device,
+        )
+        self.yaw_dof_indices = torch.tensor(
+            [
+                int(self.action_indices[i].item())
+                for i in self.yaw_action_indices.tolist()
             ],
             dtype=torch.long,
             device=self.device,
@@ -103,6 +135,33 @@ class GR2ReachPlantedPickup(GR2Reach):
         target = float(self.cfg.rewards.pickup_hip_flexion_target)
         return torch.clamp(hip_flexion / max(target, 1.0e-6), 0.0, 1.0) * self._low_target_gate()
 
+    def _reward_low_target_base_height_drop(self):
+        base_drop = torch.clamp(self.episode_start_base_pos[:, 2] - self.base_pos[:, 2], min=0.0)
+        target = float(self.cfg.rewards.pickup_base_height_drop_target)
+        return torch.clamp(base_drop / max(target, 1.0e-6), 0.0, 1.0) * self._low_target_gate()
+
+    def _reward_low_target_ankle_pitch(self):
+        if len(self.ankle_pitch_dof_indices) == 0:
+            return torch.zeros(self.num_envs, device=self.device)
+        ankle_offset = torch.abs(
+            self.dof_pos[:, self.ankle_pitch_dof_indices]
+            - self.default_dof_pos[:, self.ankle_pitch_dof_indices]
+        )
+        ankle_pitch = torch.mean(ankle_offset, dim=1)
+        target = float(self.cfg.rewards.pickup_ankle_pitch_target)
+        return torch.clamp(ankle_pitch / max(target, 1.0e-6), 0.0, 1.0) * self._low_target_gate()
+
+    def _reward_low_target_yaw_twist(self):
+        if len(self.yaw_dof_indices) == 0:
+            return torch.zeros(self.num_envs, device=self.device)
+        yaw_offset = torch.abs(
+            self.dof_pos[:, self.yaw_dof_indices]
+            - self.default_dof_pos[:, self.yaw_dof_indices]
+        )
+        yaw_twist = torch.mean(yaw_offset, dim=1) + 0.20 * torch.abs(self.base_ang_vel[:, 2])
+        deadband = float(self.cfg.rewards.pickup_yaw_twist_deadband)
+        return torch.clamp(yaw_twist - deadband, min=0.0) * self._low_target_gate()
+
 
 class GR2ReachPlantedPickupCfg(GR2ReachPickupHighCfg):
     """Same z goal as pickup/high, but planted feet and explicit squat rewards."""
@@ -119,6 +178,9 @@ class GR2ReachPlantedPickupCfg(GR2ReachPickupHighCfg):
         pickup_feet_xy_deadband = 0.025
         pickup_knee_flexion_target = 0.45
         pickup_hip_flexion_target = 0.22
+        pickup_base_height_drop_target = 0.16
+        pickup_ankle_pitch_target = 0.16
+        pickup_yaw_twist_deadband = 0.08
 
         class scales(GR2ReachPickupHighCfg.rewards.scales):
             reach_target_pos = 7.00
@@ -134,6 +196,9 @@ class GR2ReachPlantedPickupCfg(GR2ReachPickupHighCfg):
             feet_speed_xy = -0.85
             low_target_knee_flexion = 4.50
             low_target_hip_flexion = 1.50
+            low_target_base_height_drop = 2.00
+            low_target_ankle_pitch = 0.80
+            low_target_yaw_twist = -0.35
 
             main_body_dof_pos = -0.45
             inactive_arm_still = -0.07
