@@ -162,6 +162,71 @@ class GR2ReachPlantedPickup(GR2Reach):
         deadband = float(self.cfg.rewards.pickup_yaw_twist_deadband)
         return torch.clamp(yaw_twist - deadband, min=0.0) * self._low_target_gate()
 
+    def _reward_low_target_squat_coherence(self):
+        if (
+            len(self.knee_dof_indices) == 0
+            or len(self.hip_pitch_dof_indices) == 0
+            or len(self.ankle_pitch_dof_indices) == 0
+        ):
+            return torch.zeros(self.num_envs, device=self.device)
+
+        knee_offset = torch.clamp(
+            self.dof_pos[:, self.knee_dof_indices]
+            - self.default_dof_pos[:, self.knee_dof_indices],
+            min=0.0,
+        )
+        hip_offset = torch.abs(
+            self.dof_pos[:, self.hip_pitch_dof_indices]
+            - self.default_dof_pos[:, self.hip_pitch_dof_indices]
+        )
+        ankle_offset = torch.abs(
+            self.dof_pos[:, self.ankle_pitch_dof_indices]
+            - self.default_dof_pos[:, self.ankle_pitch_dof_indices]
+        )
+        base_drop = torch.clamp(self.episode_start_base_pos[:, 2] - self.base_pos[:, 2], min=0.0)
+
+        knee_score = torch.clamp(
+            torch.mean(knee_offset, dim=1) / max(float(self.cfg.rewards.pickup_knee_flexion_target), 1.0e-6),
+            0.0,
+            1.0,
+        )
+        hip_score = torch.clamp(
+            torch.mean(hip_offset, dim=1) / max(float(self.cfg.rewards.pickup_hip_flexion_target), 1.0e-6),
+            0.0,
+            1.0,
+        )
+        ankle_score = torch.clamp(
+            torch.mean(ankle_offset, dim=1) / max(float(self.cfg.rewards.pickup_ankle_pitch_target), 1.0e-6),
+            0.0,
+            1.0,
+        )
+        drop_score = torch.clamp(
+            base_drop / max(float(self.cfg.rewards.pickup_base_height_drop_target), 1.0e-6),
+            0.0,
+            1.0,
+        )
+        return torch.minimum(
+            torch.minimum(knee_score, hip_score),
+            torch.minimum(ankle_score, drop_score),
+        ) * self._low_target_gate()
+
+    def _reward_low_target_leg_asymmetry(self):
+        if len(self.knee_dof_indices) < 2 or len(self.ankle_pitch_dof_indices) < 2:
+            return torch.zeros(self.num_envs, device=self.device)
+
+        knee_offset = torch.clamp(
+            self.dof_pos[:, self.knee_dof_indices]
+            - self.default_dof_pos[:, self.knee_dof_indices],
+            min=0.0,
+        )
+        ankle_offset = torch.abs(
+            self.dof_pos[:, self.ankle_pitch_dof_indices]
+            - self.default_dof_pos[:, self.ankle_pitch_dof_indices]
+        )
+        knee_asymmetry = torch.abs(knee_offset[:, 0] - knee_offset[:, 1])
+        ankle_asymmetry = torch.abs(ankle_offset[:, 0] - ankle_offset[:, 1])
+        return (knee_asymmetry + 0.65 * ankle_asymmetry) * self._low_target_gate()
+
 
 class GR2ReachPlantedPickupCfg(GR2ReachPickupHighCfg):
     """Same z goal as pickup/high, but planted feet and explicit squat rewards."""
@@ -199,6 +264,8 @@ class GR2ReachPlantedPickupCfg(GR2ReachPickupHighCfg):
             low_target_base_height_drop = 2.00
             low_target_ankle_pitch = 0.80
             low_target_yaw_twist = -0.35
+            low_target_squat_coherence = 0.80
+            low_target_leg_asymmetry = -0.25
 
             main_body_dof_pos = -0.45
             inactive_arm_still = -0.07
