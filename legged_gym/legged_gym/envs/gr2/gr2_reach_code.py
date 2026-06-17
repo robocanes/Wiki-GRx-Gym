@@ -55,6 +55,8 @@ class GR2Reach(GR2):
         self.reach_target_pos_base = torch.zeros_like(self.reach_target_pos)
         self.reach_target_rpy_base = torch.zeros_like(self.reach_target_pos)
         self.reach_target_quat = torch.zeros(self.num_envs, 4, dtype=torch.float, device=self.device)
+        self.reach_target_origin_pos = torch.zeros_like(self.reach_target_pos)
+        self.reach_target_origin_quat = torch.zeros_like(self.reach_target_quat)
         self.reach_use_left = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
         self.reach_arm_selector = torch.zeros(self.num_envs, 2, dtype=torch.float, device=self.device)
         self.camera_indices = torch.tensor(
@@ -280,6 +282,8 @@ class GR2Reach(GR2):
         self.reach_target_pos_base[env_ids] = target_pos_base
         self.reach_target_rpy_base[env_ids] = target_rpy_base
         self.reach_target_quat[env_ids] = _quat_mul(self.base_quat[env_ids], target_quat_base)
+        self.reach_target_origin_pos[env_ids] = self.base_pos[env_ids]
+        self.reach_target_origin_quat[env_ids] = self.base_quat[env_ids]
 
     def _update_reach_target_base_frame(self):
         target_delta_world = self.reach_target_pos - self.base_pos
@@ -346,15 +350,15 @@ class GR2Reach(GR2):
 
         for env_id in range(self.num_envs):
             use_left = self.reach_use_left[env_id].item()
-            base_pos = self.base_pos[env_id].detach().cpu().numpy()
-            base_quat = self.base_quat[env_id].detach().cpu().numpy()
+            target_origin_pos = self.reach_target_origin_pos[env_id].detach().cpu().numpy()
+            target_origin_quat = self.reach_target_origin_quat[env_id].detach().cpu().numpy()
             target_pos = self.reach_target_pos[env_id].detach().cpu().numpy()
             target_quat = self.reach_target_quat[env_id].detach().cpu().numpy()
             wrist_pos = active_end_effector_pos[env_id].detach().cpu().numpy()
 
             if draw_target_volume_box:
                 box_corners = np.array(
-                    [_transform_point_np(base_pos, base_quat, corner) for corner in box_corners_base],
+                    [_transform_point_np(target_origin_pos, target_origin_quat, corner) for corner in box_corners_base],
                     dtype=np.float32,
                 )
                 box_vertices = np.array(
