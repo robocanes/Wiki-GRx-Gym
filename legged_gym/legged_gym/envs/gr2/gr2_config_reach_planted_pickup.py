@@ -78,9 +78,31 @@ class GR2ReachPlantedPickup(GR2Reach):
             dtype=torch.long,
             device=self.device,
         )
+        left_shoulder_candidates = [
+            i for i, name in enumerate(self.body_names)
+            if name.startswith("left_upper_arm_pitch")
+        ]
+        right_shoulder_candidates = [
+            i for i, name in enumerate(self.body_names)
+            if name.startswith("right_upper_arm_pitch")
+        ]
+        if left_shoulder_candidates and right_shoulder_candidates:
+            self.reach_shoulder_indices = torch.tensor(
+                [left_shoulder_candidates[0], right_shoulder_candidates[0]],
+                dtype=torch.long,
+                device=self.device,
+            )
+        else:
+            self.reach_shoulder_indices = torch.tensor([], dtype=torch.long, device=self.device)
 
         self.episode_start_base_pos = self.base_pos.clone()
         self.episode_start_feet_pos = self.rigid_body_states[:, self.feet_indices, 0:3].clone()
+        if len(self.reach_shoulder_indices) == 2:
+            self.episode_start_shoulder_pos = self.rigid_body_states[
+                :, self.reach_shoulder_indices, 0:3
+            ].clone()
+        else:
+            self.episode_start_shoulder_pos = torch.zeros(self.num_envs, 2, 3, device=self.device)
 
     def _reset_others(self, env_ids):
         super()._reset_others(env_ids)
@@ -88,6 +110,10 @@ class GR2ReachPlantedPickup(GR2Reach):
         self.episode_start_feet_pos[env_ids] = self.rigid_body_states[
             env_ids[:, None], self.feet_indices, 0:3
         ]
+        if len(self.reach_shoulder_indices) == 2:
+            self.episode_start_shoulder_pos[env_ids] = self.rigid_body_states[
+                env_ids[:, None], self.reach_shoulder_indices, 0:3
+            ]
 
     def _low_target_gate(self):
         z = self.reach_target_pos_base[:, 2]
@@ -227,6 +253,38 @@ class GR2ReachPlantedPickup(GR2Reach):
         ankle_asymmetry = torch.abs(ankle_offset[:, 0] - ankle_offset[:, 1])
         return (knee_asymmetry + 0.65 * ankle_asymmetry) * self._low_target_gate()
 
+    def _reward_low_target_active_shoulder_drop(self):
+        if len(self.reach_shoulder_indices) != 2:
+            return torch.zeros(self.num_envs, device=self.device)
+
+        shoulder_pos = self.rigid_body_states[:, self.reach_shoulder_indices, 0:3]
+        active_index = torch.where(
+            self.reach_use_left,
+            torch.zeros(self.num_envs, dtype=torch.long, device=self.device),
+            torch.ones(self.num_envs, dtype=torch.long, device=self.device),
+        )
+        active_start_z = self.episode_start_shoulder_pos[
+            torch.arange(self.num_envs, device=self.device), active_index, 2
+        ]
+        active_z = shoulder_pos[torch.arange(self.num_envs, device=self.device), active_index, 2]
+        shoulder_drop = torch.clamp(active_start_z - active_z, min=0.0)
+        target = float(self.cfg.rewards.pickup_shoulder_drop_target)
+        return torch.clamp(shoulder_drop / max(target, 1.0e-6), 0.0, 1.0) * self._low_target_gate()
+
+    def _reward_low_target_torso_pitch(self):
+        torso_pitch = torch.abs(self.torso_projected_gravity[:, 0])
+        min_pitch = float(self.cfg.rewards.pickup_torso_pitch_min)
+        target_pitch = float(self.cfg.rewards.pickup_torso_pitch_target)
+        pitch_score = torch.clamp(
+            (torso_pitch - min_pitch) / max(target_pitch - min_pitch, 1.0e-6),
+            0.0,
+            1.0,
+        )
+        return pitch_score * self._low_target_gate()
+
+    def _reward_low_target_torso_lateral_tilt(self):
+        return torch.abs(self.torso_projected_gravity[:, 1]) * self._low_target_gate()
+
 
 class GR2ReachPlantedPickupCfg(GR2ReachPickupHighCfg):
     """Same z goal as pickup/high, but planted feet and explicit squat rewards."""
@@ -246,6 +304,9 @@ class GR2ReachPlantedPickupCfg(GR2ReachPickupHighCfg):
         pickup_base_height_drop_target = 0.16
         pickup_ankle_pitch_target = 0.16
         pickup_yaw_twist_deadband = 0.08
+        pickup_shoulder_drop_target = 0.14
+        pickup_torso_pitch_min = 0.10
+        pickup_torso_pitch_target = 0.38
 
         class scales(GR2ReachPickupHighCfg.rewards.scales):
             reach_target_pos = 7.00
@@ -266,6 +327,9 @@ class GR2ReachPlantedPickupCfg(GR2ReachPickupHighCfg):
             low_target_yaw_twist = -0.35
             low_target_squat_coherence = 0.80
             low_target_leg_asymmetry = -0.25
+            low_target_active_shoulder_drop = 0.80
+            low_target_torso_pitch = 0.60
+            low_target_torso_lateral_tilt = -0.30
 
             main_body_dof_pos = -0.45
             inactive_arm_still = -0.07
