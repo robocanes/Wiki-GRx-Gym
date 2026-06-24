@@ -384,6 +384,15 @@ class OnPolicyRunner:
         loaded_dict = torch.load(path)
         self.algorithm.actor_critic.load_state_dict(loaded_dict["model_state_dict"])
 
+        if self.policy_cfg.get("reset_loaded_std", False):
+            init_std = torch.as_tensor(
+                self.policy_cfg["init_noise_std"],
+                device=self.device,
+                dtype=self.algorithm.actor_critic.std.dtype,
+            )
+            self.algorithm.actor_critic.std.data.copy_(init_std)
+            print(f"reset loaded action std to policy init_noise_std = {init_std}")
+
         if load_optimizer:
             self.algorithm.optimizer.load_state_dict(loaded_dict["optimizer_state_dict"])
 

@@ -2254,10 +2254,11 @@ class LeggedRobot(BaseTask):
 
             # update the origin of the actor
             pos = self.env_origins[env_index].clone()
-            pos[0:2] += torch_rand_float(lower=-1.0,
-                                         upper=+1.0,
-                                         shape=(2, 1),
-                                         device=self.device).squeeze(1)
+            if os.environ.get("PLAY_GRID_ENVS", "0") != "1":
+                pos[0:2] += torch_rand_float(lower=-1.0,
+                                             upper=+1.0,
+                                             shape=(2, 1),
+                                             device=self.device).squeeze(1)
             start_pose.p = gymapi.Vec3(*pos)
 
             # ----------------------------------
@@ -2476,8 +2477,12 @@ class LeggedRobot(BaseTask):
             self.env_origins = torch.zeros(self.num_envs, 3, device=self.device, requires_grad=False)
 
             # create a grid of robots
-            num_cols = np.floor(np.sqrt(self.num_envs))
-            num_rows = np.ceil(self.num_envs / num_cols)
+            if os.environ.get("PLAY_GRID_ENVS", "0") == "1" and self.num_envs <= 5:
+                num_cols = self.num_envs
+            else:
+                num_cols = np.floor(np.sqrt(self.num_envs))
+            num_cols = int(num_cols)
+            num_rows = int(np.ceil(self.num_envs / num_cols))
             xx, yy = torch.meshgrid(torch.arange(num_rows), torch.arange(num_cols))
             spacing = self.cfg.env.env_spacing
             self.env_origins[:, 0] = spacing * xx.flatten()[:self.num_envs]

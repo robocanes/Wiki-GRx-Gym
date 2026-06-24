@@ -41,6 +41,7 @@ import torch
 
 def play(args):
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
+    play_grid_envs = os.environ.setdefault("PLAY_GRID_ENVS", "1") == "1"
 
     # override some parameters for testing
     env_cfg.env.episode_length_s = 600.0
@@ -49,10 +50,18 @@ def play(args):
     env_cfg.terrain.num_rows = 5
     env_cfg.terrain.num_cols = 5
     env_cfg.terrain.curriculum = False
+    if play_grid_envs:
+        env_cfg.terrain.mesh_type = "plane"
+        env_cfg.terrain.measure_heights = False
+        env_cfg.env.env_spacing = float(os.environ.get("PLAY_ENV_SPACING", "2.5"))
+        print(f"PLAY_GRID_ENVS: mesh_type=plane, env_spacing={env_cfg.env.env_spacing}")
 
     env_cfg.noise.add_noise = False
 
     env_cfg.domain_rand.randomize_friction = False
+    if play_grid_envs:
+        env_cfg.domain_rand.randomize_init_base_position_xy = False
+        env_cfg.domain_rand.randomize_init_base_orientation_yaw = False
 
     # prepare environment
     env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
